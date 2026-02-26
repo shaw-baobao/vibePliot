@@ -5,6 +5,8 @@ public enum GestureEvent: String, CaseIterable, Codable, Hashable, Sendable {
     case ok
     case fist
     case openPalm
+    case nod
+    case shake
 
     public var displayName: String {
         switch self {
@@ -14,6 +16,10 @@ public enum GestureEvent: String, CaseIterable, Codable, Hashable, Sendable {
             return "Fist"
         case .openPalm:
             return "Open Palm"
+        case .nod:
+            return "Nod"
+        case .shake:
+            return "Shake"
         }
     }
 }
@@ -184,6 +190,43 @@ public struct HandPoseFrame: Codable, Equatable, Sendable {
 
     public init(points: [HandPosePoint], timestamp: Date = Date()) {
         self.points = points
+        self.timestamp = timestamp
+    }
+}
+
+public struct FacePoseFrame: Codable, Equatable, Sendable {
+    public var centerX: Float
+    public var centerY: Float
+    public var width: Float
+    public var height: Float
+    public var confidence: Float
+    public var timestamp: Date
+
+    public init(
+        centerX: Float,
+        centerY: Float,
+        width: Float,
+        height: Float,
+        confidence: Float,
+        timestamp: Date = Date()
+    ) {
+        self.centerX = centerX
+        self.centerY = centerY
+        self.width = width
+        self.height = height
+        self.confidence = confidence
+        self.timestamp = timestamp
+    }
+}
+
+public struct VisionAnalysisFrame: Equatable, Sendable {
+    public var handPose: HandPoseFrame?
+    public var facePose: FacePoseFrame?
+    public var timestamp: Date
+
+    public init(handPose: HandPoseFrame?, facePose: FacePoseFrame?, timestamp: Date = Date()) {
+        self.handPose = handPose
+        self.facePose = facePose
         self.timestamp = timestamp
     }
 }

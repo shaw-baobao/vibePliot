@@ -1,13 +1,11 @@
 import AppKit
 import Foundation
 
-public final class MenuBarController: NSObject {
+public final class MenuBarController: NSObject, NSMenuDelegate {
     public struct Callbacks {
         public var onToggleRecognition: ((Bool) -> Void)?
         public var onTogglePause: ((Bool) -> Void)?
         public var onOpenSettings: (() -> Void)?
-        public var onOpenCameraPrivacySettings: (() -> Void)?
-        public var onOpenAccessibilityPrivacySettings: (() -> Void)?
         public var onQuit: (() -> Void)?
         public var cameraPermissionSummary: (() -> String)?
         public var accessibilityPermissionSummary: (() -> String)?
@@ -16,8 +14,6 @@ public final class MenuBarController: NSObject {
             onToggleRecognition: ((Bool) -> Void)? = nil,
             onTogglePause: ((Bool) -> Void)? = nil,
             onOpenSettings: (() -> Void)? = nil,
-            onOpenCameraPrivacySettings: (() -> Void)? = nil,
-            onOpenAccessibilityPrivacySettings: (() -> Void)? = nil,
             onQuit: (() -> Void)? = nil,
             cameraPermissionSummary: (() -> String)? = nil,
             accessibilityPermissionSummary: (() -> String)? = nil
@@ -25,8 +21,6 @@ public final class MenuBarController: NSObject {
             self.onToggleRecognition = onToggleRecognition
             self.onTogglePause = onTogglePause
             self.onOpenSettings = onOpenSettings
-            self.onOpenCameraPrivacySettings = onOpenCameraPrivacySettings
-            self.onOpenAccessibilityPrivacySettings = onOpenAccessibilityPrivacySettings
             self.onQuit = onQuit
             self.cameraPermissionSummary = cameraPermissionSummary
             self.accessibilityPermissionSummary = accessibilityPermissionSummary
@@ -47,6 +41,7 @@ public final class MenuBarController: NSObject {
     public func install(callbacks: Callbacks) {
         self.callbacks = callbacks
         statusItem.button?.title = "VP"
+        menu.delegate = self
         statusItem.menu = menu
         rebuildMenu()
     }
@@ -73,8 +68,6 @@ public final class MenuBarController: NSObject {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makePermissionSummaryItem(title: "Camera", text: callbacks.cameraPermissionSummary?() ?? "Unknown"))
         menu.addItem(makePermissionSummaryItem(title: "Accessibility", text: callbacks.accessibilityPermissionSummary?() ?? "Unknown"))
-        menu.addItem(makeOpenCameraPrivacyItem())
-        menu.addItem(makeOpenAccessibilityPrivacyItem())
         menu.addItem(NSMenuItem.separator())
         menu.addItem(makeToggleRecognitionItem())
         menu.addItem(makeTogglePauseItem())
@@ -104,18 +97,6 @@ public final class MenuBarController: NSObject {
     private func makePermissionSummaryItem(title: String, text: String) -> NSMenuItem {
         let item = NSMenuItem(title: "\(title): \(text)", action: nil, keyEquivalent: "")
         item.isEnabled = false
-        return item
-    }
-
-    private func makeOpenCameraPrivacyItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Open Camera Privacy Settings", action: #selector(openCameraPrivacySettings), keyEquivalent: "")
-        item.target = self
-        return item
-    }
-
-    private func makeOpenAccessibilityPrivacyItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Open Accessibility Privacy Settings", action: #selector(openAccessibilityPrivacySettings), keyEquivalent: "")
-        item.target = self
         return item
     }
 
@@ -172,17 +153,12 @@ public final class MenuBarController: NSObject {
     }
 
     @objc
-    private func openCameraPrivacySettings() {
-        callbacks.onOpenCameraPrivacySettings?()
-    }
-
-    @objc
-    private func openAccessibilityPrivacySettings() {
-        callbacks.onOpenAccessibilityPrivacySettings?()
-    }
-
-    @objc
     private func quitApp() {
         callbacks.onQuit?()
+    }
+
+    public func menuWillOpen(_ menu: NSMenu) {
+        _ = menu
+        refresh()
     }
 }

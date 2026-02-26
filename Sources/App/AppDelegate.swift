@@ -10,12 +10,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let cameraManager = CameraManager()
     private let visionEngine = VisionEngine()
     private let inputInjector = InputInjector()
+    private let logger = VibePilotLogger()
     private lazy var menuBarController = MenuBarController(state: appState)
     private lazy var gestureRecognizer = GestureRecognizer(settings: bindingManager.settings)
+    private lazy var headGestureRecognizer = HeadGestureRecognizer(settings: bindingManager.settings)
 
     private var settingsWindowController: NSWindowController?
     private var hasReceivedCameraFrame = false
     private var lastNoHandStatusAt = Date.distantPast
+    private var lastHandSeenStatusAt = Date.distantPast
+    private var lastFaceSeenStatusAt = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         cameraManager.preferredFPS = bindingManager.settings.fps
@@ -37,12 +41,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onOpenSettings: { [weak self] in
                     self?.showSettingsWindow()
                 },
-                onOpenCameraPrivacySettings: { [weak self] in
-                    self?.permissionManager.openCameraPrivacySettings()
-                },
-                onOpenAccessibilityPrivacySettings: { [weak self] in
-                    self?.permissionManager.openAccessibilityPrivacySettings()
-                },
                 onQuit: {
                     NSApp.terminate(nil)
                 },
@@ -55,7 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
 
-        NSLog("VibePilot launched. Menu bar app is ready.")
+        log("Session log file: \(logger.logFileURL.path)")
+        log("App launched. Menu bar app is ready.")
         menuBarController.refresh()
     }
 
@@ -64,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try bindingManager.save()
         } catch {
-            NSLog("Failed to save settings: \(error.localizedDescription)")
+            log("Failed to save settings: \(error.localizedDescription)")
         }
     }
 
@@ -77,7 +76,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showSettingsWindow() {
-        let view = SettingsView(settings: bindingManager.settings, bindings: bindingManager.bindings)
+        log("Open Settings window.")
+
+        let view = SettingsView(
+            settings: bindingManager.settings,
+            bindings: bindingManager.bindings,
+            cameraPermissionProvider: { [weak self] in
+                self?.cameraPermissionSummary() ?? "Unknown"
+            },
+            accessibilityPermissionProvider: { [weak self] in
+                self?.accessibilityPermissionSummary() ?? "Unknown"
+            },
+            logFilePath: logger.logFileURL.path,
+            onOpenCameraPrivacySettings: { [weak self] in
+                self?.log("Open Camera Privacy Settings requested.")
+                self?.permissionManager.openCameraPrivacySettings()
+            },
+            onOpenAccessibilityPrivacySettings: { [weak self] in
+                self?.log("Open Accessibility Privacy Settings requested.")
+                self?.permissionManager.openAccessibilityPrivacySettings()
+            },
+            onOpenLogFile: { [weak self] in
+                guard let self else { return }
+                self.log("Open log file requested.")
+                NSWorkspace.shared.open(self.logger.logFileURL)
+            }
+        )
         let hostingController = NSHostingController(rootView: view)
 
         let window: NSWindow
@@ -86,13 +110,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.contentViewController = hostingController
         } else {
             window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 420),
+                contentRect: NSRect(x: 0, y: 0, width: 620, height: 720),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "VibePilot Settings"
             window.isReleasedWhenClosed = false
+            window.minSize = NSSize(width: 580, height: 660)
             window.contentViewController = hostingController
             settingsWindowController = NSWindowController(window: window)
         }
@@ -106,13 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.isRecognitionRunning = true
         appState.lastErrorMessage = nil
         appState.statusMessage = "Checking camera permission..."
+        log("Start recognition requested.")
         menuBarController.refresh()
 
-        switch permissionManager.cameraAuthorizationStatus() {
+        let cameraStatus = permissionManager.cameraAuthorizationStatus()
+        log("Camera permission status: \(cameraPermissionSummary(for: cameraStatus))")
+
+        switch cameraStatus {
         case .authorized:
             startRecognitionSession()
         case .notDetermined:
             appState.statusMessage = "Requesting camera permission..."
+            log("Requesting camera permission...")
             menuBarController.refresh()
 
             permissionManager.requestCameraPermission { [weak self] granted in
@@ -121,8 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard self.appState.isRecognitionRunning else { return }
 
                     if granted {
+                        self.log("Camera permission granted.")
                         self.startRecognitionSession()
                     } else {
+                        self.log("Camera permission denied by user.")
                         self.failRecognitionStart(message: "Camera permission denied. Open System Settings > Privacy & Security > Camera.")
                     }
                 }
@@ -135,7 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func cameraPermissionSummary() -> String {
-        switch permissionManager.cameraAuthorizationStatus() {
+        cameraPermissionSummary(for: permissionManager.cameraAuthorizationStatus())
+    }
+
+    private func cameraPermissionSummary(for status: AVAuthorizationStatus) -> String {
+        switch status {
         case .authorized:
             return "Authorized"
         case .notDetermined:
@@ -156,21 +192,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecognitionSession() {
         hasReceivedCameraFrame = false
         lastNoHandStatusAt = .distantPast
+        lastHandSeenStatusAt = .distantPast
+        lastFaceSeenStatusAt = .distantPast
 
         if !permissionManager.isAccessibilityTrusted() {
             _ = permissionManager.promptAccessibilityPermission()
             appState.lastErrorMessage = "Accessibility not granted. Gesture detection will run, but keyboard/mouse injection may fail."
+            log("Accessibility not granted. Prompted user. Gesture detection can run; input injection may fail.")
         } else {
             appState.lastErrorMessage = nil
+            log("Accessibility is authorized.")
         }
 
         gestureRecognizer.update(settings: bindingManager.settings)
+        headGestureRecognizer.update(settings: bindingManager.settings)
         cameraManager.preferredFPS = bindingManager.settings.fps
 
         do {
             try cameraManager.start()
             appState.statusMessage = "Starting camera..."
-            NSLog("VibePilot recognition started.")
+            log("Recognition session started. Waiting for camera frames...")
         } catch {
             failRecognitionStart(message: error.localizedDescription)
             return
@@ -185,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.isRecognitionPaused = false
         appState.statusMessage = "Stopped"
         appState.lastErrorMessage = nil
-        NSLog("VibePilot recognition stopped.")
+        log("Recognition stopped.")
         menuBarController.refresh()
     }
 
@@ -195,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.isRecognitionPaused = false
         appState.statusMessage = "Start failed"
         appState.lastErrorMessage = message
-        NSLog("VibePilot failed to start: \(message)")
+        log("Failed to start recognition: \(message)")
         menuBarController.refresh()
     }
 
@@ -210,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !hasReceivedCameraFrame {
             hasReceivedCameraFrame = true
+            log("First camera frame received.")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.appState.statusMessage = self.appState.isRecognitionPaused
@@ -219,15 +261,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        guard let handPoseFrame = visionEngine.analyze(sampleBuffer) else {
+        guard let analysis = visionEngine.analyze(sampleBuffer) else {
             let now = Date()
             if now.timeIntervalSince(lastNoHandStatusAt) > 1.5 {
                 lastNoHandStatusAt = now
+                log("No hand/face detected in current frame window.")
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     guard self.appState.isRecognitionRunning else { return }
                     if !self.appState.isRecognitionPaused {
-                        self.appState.statusMessage = "Camera active. No hand detected."
+                        self.appState.statusMessage = "Camera active. No hand/face detected."
                         self.menuBarController.refresh()
                     }
                 }
@@ -235,19 +278,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if let trigger = gestureRecognizer.process(frame: handPoseFrame, now: handPoseFrame.timestamp) {
+        if let handPoseFrame = analysis.handPose,
+           let trigger = gestureRecognizer.process(frame: handPoseFrame, now: analysis.timestamp) {
             DispatchQueue.main.async { [weak self] in
                 self?.handleGestureTrigger(trigger)
             }
-        } else {
-            let isPaused = DispatchQueue.main.sync { appState.isRecognitionPaused }
-            if !isPaused {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    guard self.appState.isRecognitionRunning, !self.appState.isRecognitionPaused else { return }
-                    self.appState.statusMessage = "Hand detected. Waiting for gesture..."
-                    self.menuBarController.refresh()
-                }
+            return
+        }
+
+        if let facePoseFrame = analysis.facePose,
+           let trigger = headGestureRecognizer.process(face: facePoseFrame, now: analysis.timestamp) {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleGestureTrigger(trigger)
+            }
+            return
+        }
+
+        let isPaused = DispatchQueue.main.sync { appState.isRecognitionPaused }
+        let now = Date()
+        guard !isPaused else { return }
+
+        if analysis.handPose != nil, now.timeIntervalSince(lastHandSeenStatusAt) > 1.5 {
+            lastHandSeenStatusAt = now
+            log("Hand landmarks detected. Waiting for stable gesture classification...")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.appState.isRecognitionRunning, !self.appState.isRecognitionPaused else { return }
+                self.appState.statusMessage = "Hand detected. Waiting for gesture..."
+                self.menuBarController.refresh()
+            }
+            return
+        }
+
+        if analysis.facePose != nil, now.timeIntervalSince(lastFaceSeenStatusAt) > 1.5 {
+            lastFaceSeenStatusAt = now
+            log("Face detected. Waiting for head gesture classification (nod/shake)...")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.appState.isRecognitionRunning, !self.appState.isRecognitionPaused else { return }
+                self.appState.statusMessage = "Face detected. Waiting for nod/shake..."
+                self.menuBarController.refresh()
             }
         }
     }
@@ -259,19 +329,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         appState.latestTrigger = trigger
         let confidencePercent = Int((trigger.confidence * 100).rounded())
-        NSLog("Gesture detected: \(trigger.event.rawValue) (\(confidencePercent)%)")
+        log("Gesture detected: \(trigger.event.rawValue) (\(confidencePercent)%)")
 
         if trigger.event == .openPalm {
             appState.isRecognitionPaused.toggle()
             appState.statusMessage = appState.isRecognitionPaused
                 ? "Paused by Open Palm"
                 : "Resumed by Open Palm"
+            log(appState.isRecognitionPaused ? "Recognition paused by Open Palm." : "Recognition resumed by Open Palm.")
             menuBarController.refresh()
             return
         }
 
         if appState.isRecognitionPaused {
             appState.statusMessage = "Paused (Open Palm to resume)"
+            log("Gesture ignored because recognition is paused.")
             menuBarController.refresh()
             return
         }
@@ -279,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let action = bindingManager.binding(for: trigger.event)
         if case .none = action {
             appState.statusMessage = "Gesture \(trigger.event.displayName) detected (no binding)"
+            log("Gesture \(trigger.event.rawValue) detected but no binding is configured.")
             menuBarController.refresh()
             return
         }
@@ -287,11 +360,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try inputInjector.inject(action)
             appState.statusMessage = "Triggered \(trigger.event.displayName) -> \(action.displayText)"
             appState.lastErrorMessage = nil
+            log("Input injection succeeded: \(trigger.event.rawValue) -> \(action.displayText)")
         } catch {
             appState.statusMessage = "Gesture detected, injection failed"
             appState.lastErrorMessage = error.localizedDescription
+            log("Input injection failed for \(trigger.event.rawValue): \(error.localizedDescription)")
         }
 
         menuBarController.refresh()
+    }
+
+    @discardableResult
+    private func log(_ message: String) -> String {
+        logger.log(message)
     }
 }

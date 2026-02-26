@@ -10,13 +10,13 @@ public final class BindingManager {
         self.store = store
         let configuration = store.loadConfiguration()
         self.settings = configuration.settings
-        self.bindings = configuration.bindings
+        self.bindings = Self.mergedBindings(configuration.bindings)
     }
 
     public func reload() {
         let configuration = store.loadConfiguration()
         settings = configuration.settings
-        bindings = configuration.bindings
+        bindings = Self.mergedBindings(configuration.bindings)
     }
 
     public func binding(for event: GestureEvent) -> BindingAction {
@@ -39,5 +39,12 @@ public final class BindingManager {
         )
         try store.saveConfiguration(configuration)
     }
-}
 
+    private static func mergedBindings(_ existing: [GestureEvent: BindingAction]) -> [GestureEvent: BindingAction] {
+        var merged = DefaultBindings.make()
+        for (event, action) in existing {
+            merged[event] = action
+        }
+        return merged
+    }
+}
