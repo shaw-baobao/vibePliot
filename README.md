@@ -1,23 +1,27 @@
 # VibePilot
 
-一个面向 `vibe coding` 的 macOS 菜单栏工具：用摄像头识别手势，把动作映射成键盘/鼠标事件，实现免手输入。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-当前仓库已按开源项目方式搭好基础骨架（参考 `dorso` 的组织思路）：
+VibePilot is a macOS menu bar app for `vibe coding`: it detects hand gestures with the camera and maps them to keyboard/mouse actions for hands-free control.
 
-- `SwiftPM` 工程（`Core + App + Tests`）
-- 菜单栏 App 入口（最小可运行骨架）
-- 配置持久化 / 权限管理 / 输入注入的占位实现
-- `Scripts/` 打包脚本（可生成 `.app`）
-- 开源文档基础文件（`PRIVACY.md` / `CHANGELOG.md` / `LICENSE`）
+This repository is organized as an open-source SwiftPM project (inspired by the structure of [`dorso`](https://github.com/tldev/dorso)):
 
-## 快速开始
+- SwiftPM project layout (`Core + App + Tests`)
+- Menu bar app entry point
+- Camera permission + camera capture + Vision hand pose pipeline
+- Gesture recognition pipeline (`OK` / `Fist` / `OpenPalm`) with debounce/cooldown
+- Input injection (`CGEvent`) for keyboard/mouse actions
+- Packaging scripts in `Scripts/` (build a `.app`)
+- Basic OSS docs (`PRIVACY.md`, `CHANGELOG.md`, `LICENSE`)
 
-### 依赖
+## Quick Start
+
+### Requirements
 
 - macOS 13+
-- Xcode Command Line Tools（`xcode-select --install`）
+- Xcode Command Line Tools (`xcode-select --install`)
 
-### 本地运行
+### Run Locally
 
 ```bash
 swift build
@@ -25,31 +29,43 @@ swift test
 Scripts/dev.sh
 ```
 
-### 打包 `.app`
+### Package `.app`
 
 ```bash
 Scripts/package_app.sh
 open build/VibePilot.app
 ```
 
-## 项目结构
+Note: this is a menu bar app, so launching it will not show a Dock icon by default.
+
+## Permissions
+
+VibePilot uses:
+
+- `Camera` (required for gesture detection)
+- `Accessibility` (required for keyboard/mouse event injection)
+
+It does **not** require screen recording permission for the current MVP path.
+
+## Project Structure
 
 ```text
 vibePilot/
 ├── Package.swift
-├── Readme.md                 # 当前 README（大小写保留）
+├── README.md
+├── README.zh-CN.md
 ├── docs/
-│   └── PRD.md                # 原始产品文档（从旧 Readme 迁移保留）
+│   └── PRD.md
 ├── Scripts/
 │   ├── dev.sh
 │   ├── package_app.sh
 │   ├── release.sh
 │   └── version.env
 ├── Sources/
-│   ├── App/                  # 可执行入口（薄）
+│   ├── App/
 │   │   ├── VibePilotMain.swift
 │   │   └── AppDelegate.swift
-│   └── VibePilotCore/        # 核心逻辑（可测试）
+│   └── VibePilotCore/
 │       ├── Shared/
 │       ├── Camera/
 │       ├── Vision/
@@ -64,24 +80,17 @@ vibePilot/
     └── VibePilotCoreTests/
 ```
 
-## 当前状态
+## Current Status
 
-- 已完成：项目骨架、模块分层、默认映射配置、基础测试样例
-- 未完成：Vision 手势识别规则、摄像头采集链路、真实设置页交互、完整权限引导
+- Working MVP pipeline: camera permission -> camera frames -> Vision hand pose -> gesture classification -> optional input injection
+- Menu bar status and permission summaries are visible in the app menu
+- Settings UI is still a lightweight scaffold (display-first, not a full editor yet)
 
-## 下一步建议（MVP 顺序）
+## Documentation
 
-1. 打通 `CameraManager -> VisionEngine -> GestureRecognizer`
-2. 实现 `OK / Fist / OpenPalm` 规则识别
-3. 接入 `InputInjector` 注入 `Enter / Esc`
-4. 菜单栏开始/暂停联动识别状态
-5. 设置页支持绑定编辑与参数持久化
-
-## 文档
-
-- 产品需求文档（PRD）：`docs/PRD.md`
-- 隐私说明：`PRIVACY.md`
+- PRD: `docs/PRD.md`
+- Privacy: `PRIVACY.md`
 
 ## License
 
-MIT（见 `LICENSE`）
+MIT (see `LICENSE`)
